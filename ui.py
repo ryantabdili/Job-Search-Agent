@@ -84,24 +84,24 @@ st.markdown("""
 jobbot.load_env_file()
 
 
-def require_password() -> None:
-    expected = os.environ.get("APP_PASSWORD", "").strip()
+def require_code() -> None:
+    expected = os.environ.get("APP_CODE", "").strip().upper()
     if not expected or st.session_state.get("authenticated"):
         return
     st.title("IP Job Board")
-    st.caption("Enter the shared password to continue.")
-    with st.form("login"):
-        password = st.text_input("Password", type="password")
+    st.caption("Enter the four-letter access code to continue.")
+    with st.form("access_code"):
+        code = st.text_input("Access code", max_chars=4, type="password")
         submitted = st.form_submit_button("Unlock", type="primary")
     if submitted:
-        if hmac.compare_digest(password, expected):
+        if hmac.compare_digest(code.strip().upper(), expected):
             st.session_state["authenticated"] = True
             st.rerun()
-        st.error("Incorrect password.")
+        st.error("Incorrect access code.")
     st.stop()
 
 
-require_password()
+require_code()
 
 
 def load():
