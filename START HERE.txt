@@ -1,0 +1,44 @@
+IP JOB BOARD: HOW TO OPEN IT
+============================
+
+First, unzip it: double-click the zip on a Mac, or right-click it > Extract All on Windows.
+Don't run anything from inside the zip.
+
+ON A MAC
+--------
+
+1. Double-click "Start IP Job Board".
+
+   The first time, your Mac may say it can't be opened because it's from an
+   unidentified developer. That's normal for a file someone sent you. To allow it:
+     - Right-click (or Control-click) "Start IP Job Board", choose Open, then Open again.
+     - If there's no Open button: go to System Settings > Privacy & Security,
+       scroll down, and click "Open Anyway" next to "Start IP Job Board".
+
+2. If it says Python needs to be installed, it opens the download page for you.
+   Install it (the standard Mac installer), then double-click "Start IP Job Board" again.
+
+3. The first start takes a minute or two to set up. After that it opens in a few seconds.
+   The Job Board opens in your web browser.
+
+4. Leave the small black Terminal window open while you use it. Close it when you're done.
+
+Everything runs on your own computer.
+
+ON WINDOWS
+----------
+1. Double-click "Start IP Job Board (Windows)".
+   If a blue "Windows protected your PC" box appears, click "More info", then "Run anyway".
+2. If it says Python needs to be installed, it opens the download page for you.
+   When installing, TICK "Add python.exe to PATH" on the first screen, then click Install Now.
+   Then double-click "Start IP Job Board (Windows)" again.
+3. The first start takes a minute or two. After that, the Job Board opens in your web browser.
+4. Leave the black window open while you use it. Close it when you're done.
+
+IF "Start IP Job Board (Windows)" IS MISSING
+--------------------------------------------
+Some email and security systems strip that file out. There's a backup copy:
+1. Find "Windows launcher - rename to .bat if missing.txt".
+2. Right-click it > Rename, and change the name to:  Start IP Job Board (Windows).bat
+   (If you can't see ".txt" at the end: in File Explorer, click View > Show > File name extensions.)
+3. Say Yes when Windows asks about changing the extension. Then double-click it.

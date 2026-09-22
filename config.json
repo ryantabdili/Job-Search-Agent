@@ -1,0 +1,50 @@
+{
+  "_help": "Edit this file to change what counts as a match. Terms are case-insensitive. 'intellectual property' is treated the same as 'IP'. A term ending in * matches any ending (trademark* matches trademarks).",
+
+  "title_rules": [
+    {"label": "Vice President of IP",      "all": ["ip"], "any": ["vice president", "vp", "svp", "avp"]},
+    {"label": "Head / Chief IP Counsel",   "all": ["ip"], "any": ["head", "chief"]},
+    {"label": "Senior Director of IP",     "all": ["ip", "senior director"]},
+    {"label": "Director of IP",            "all": ["ip", "director"]},
+    {"label": "Associate General Counsel", "all": ["associate general counsel"]},
+    {"label": "Assistant General Counsel", "all": ["assistant general counsel"]},
+    {"label": "General Counsel, IP",        "all": ["ip", "general counsel"]},
+    {"label": "IP Transactions Counsel",   "all": ["ip", "transactions"], "any": ["counsel", "attorney"]},
+    {"label": "Technology Transactions Counsel", "all": ["technology", "transactions"], "any": ["counsel", "attorney"]},
+    {"label": "Patent Litigation Counsel", "all": ["patent*", "litigation"], "any": ["counsel", "attorney"]},
+    {"label": "Patent Prosecution Counsel", "all": ["patent*", "prosecution"], "any": ["counsel", "attorney"]},
+    {"label": "Managing IP Counsel",       "all": ["ip", "managing"], "any": ["counsel", "attorney"]},
+    {"label": "Lead IP Counsel",           "all": ["ip", "lead"],     "any": ["counsel", "attorney"]},
+    {"label": "Trademark / Brand Counsel", "all": ["trademark*"], "any": ["counsel", "attorney"]},
+    {"label": "Brand Protection Counsel",  "all": ["brand protection"], "any": ["counsel", "attorney"]},
+    {"label": "Senior Patent Counsel",     "all": ["patent*"], "any": ["senior", "sr", "principal"], "any2": ["counsel", "attorney"]},
+    {"label": "Patent Counsel",            "all": ["patent*"], "any": ["counsel", "attorney"]},
+    {"label": "Senior IP Counsel",         "all": ["ip"], "any": ["senior", "sr", "principal"], "any2": ["counsel", "attorney"]},
+    {"label": "IP Counsel",                "all": ["ip"],      "any": ["counsel", "attorney", "lawyer"]},
+    {"label": "Patent Portfolio Role",     "all": ["patent*", "portfolio"]},
+    {"label": "IP Lead / Manager",         "all": ["ip"], "any": ["lead", "manager", "program", "operations", "strategy", "portfolio", "advisor", "specialist"]},
+    {"label": "IP",                         "all": ["ip"]}
+  ],
+
+  "ip_terms": ["ip", "patent*", "trademark*", "copyright*", "trade secret*", "brand protection"],
+
+  "exclude_terms": ["paralegal", "legal assistant", "intern", "internship", "clerk", "docketing",
+                    "coordinator", "analyst", "engineer", "patent agent", "technical advisor"],
+
+  "job_boards": ["Ladders", "BioSpace", "Jobot", "Jobs via Dice", "Jobs via eFinancialCareers", "Talentify.io",
+                 "Lensa", "Hirenza", "Recruiting from Scratch", "ZipRecruiter", "Indeed", "Robert Half", "Major, Lindsey & Africa"],
+
+  "new_days": 7,
+  "check_before_sharing_days": 30,
+  "max_jobs_per_post": 10,
+
+  "gmail": {
+    "search": "from:jobalerts-noreply@linkedin.com OR \"Your job alert for\" OR \"match your preferences\"",
+    "max_emails_per_run": 200
+  },
+
+  "post": {
+    "intro": "A few in-house IP roles that crossed my desk this week. If you're thinking about a move, or know someone who is, take a look:",
+    "outro": "Happy to talk with anyone weighing a move in-house. Feel free to reach out or share this with someone it might help."
+  }
+}
