@@ -22,6 +22,8 @@ import os
 import re
 import sqlite3
 import sys
+import threading
+import time
 from pathlib import Path
 
 import alerts
@@ -31,6 +33,10 @@ DB_PATH = HERE / "jobs.db"
 XLSX_PATH = HERE / "jobs.xlsx"
 POST_PATH = HERE / "post_draft.txt"
 CONFIG_PATH = HERE / "config.json"
+
+# Every load -> change -> save of jobs.db goes through this lock, so the automatic
+# background check and clicks in the app can't overwrite each other's changes.
+DB_LOCK = threading.RLock()
 
 
 def load_env_file(path: Path | None = None) -> None:
@@ -199,6 +205,134 @@ def status_of(rec: dict, config: dict, now: dt.date | None = None) -> str:
     if age < config["check_before_sharing_days"]:
         return "Active"
     return "Check it's still open"
+
+
+def get_meta(key: str, path: Path | None = None) -> str | None:
+    path = path or DB_PATH
+    if not path.exists():
+        return None
+    con = _connect(path)
+    row = con.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
+    con.close()
+    return row[0] if row else None
+
+
+def set_meta(key: str, value: str, path: Path | None = None) -> None:
+    con = _connect(path or DB_PATH)
+    with con:
+        con.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, value))
+    con.close()
+
+
+# ---------------------------------------------------------------------------
+# Automatic checks (LinkedIn search for every title + Gmail if it's set up)
+# ---------------------------------------------------------------------------
+
+_AUTO_LOCK = threading.Lock()
+_auto = {"thread": None, "message": ""}
+
+
+def last_auto_check() -> dt.datetime | None:
+    v = get_meta("last_auto_check")
+    try:
+        return dt.datetime.fromisoformat(v) if v else None
+    except ValueError:
+        return None
+
+
+def auto_check_due(config: dict, now: dt.datetime | None = None) -> bool:
+    last = last_auto_check()
+    hours = float(config.get("auto_check_hours", 6))
+    return last is None or (now or dt.datetime.now()) - last >= dt.timedelta(hours=hours)
+
+
+def run_auto_check(config: dict | None = None, delay: float = 2.0) -> str:
+    """Search LinkedIn for every title in search_keywords, read new Gmail alerts if Gmail
+    is connected, and save everything. Network work happens outside DB_LOCK so the app
+    stays usable while it runs."""
+    import linkedin_search
+    config = config or load_config()
+    location = config.get("auto_check_location", "United States")
+    terms = config.get("search_keywords", [])
+    found, failed = [], []
+    for i, term in enumerate(terms):
+        try:
+            found.extend(linkedin_search.fetch_jobs(term, location, 1, 0))
+        except Exception as exc:
+            failed.append(term)
+        if i < len(terms) - 1 and delay:
+            time.sleep(delay)
+    unique = list({(j.job_id or f"{j.title}|{j.company}"): j for j in found}.values())
+
+    batches, gmail_note = [], ""
+    if gmail_configured():
+        with DB_LOCK:
+            snapshot = load_db()
+        try:
+            batches = read_gmail(snapshot, config)
+        except Exception as exc:
+            gmail_note = f" Gmail check failed: {exc}"
+
+    with DB_LOCK:
+        db = load_db()
+        refresh_classification(db, config)
+        new_listed, new_other = add_jobs(db, unique, config, source="linkedin-search")
+        summary = ingest(db, batches, config)
+        save_db(db)
+        write_xlsx(db, config)
+        set_meta("last_auto_check", dt.datetime.now().isoformat(timespec="seconds"))
+    new_listed += summary["new_listed"]
+    msg = f"Automatic check done: **{new_listed} new matching job(s)**."
+    if failed:
+        msg += f" {len(failed)} of {len(terms)} LinkedIn searches failed (they'll be retried next time)."
+    return msg + gmail_note
+
+
+def _auto_worker(config: dict | None) -> None:
+    try:
+        _auto["message"] = run_auto_check(config)
+    except Exception as exc:
+        _auto["message"] = f"Automatic check failed: {exc}"
+
+
+def start_auto_check(force: bool = False) -> bool:
+    """Start a background check if one is due (or force=True). Returns True if one is running."""
+    with _AUTO_LOCK:
+        t = _auto["thread"]
+        if t is not None and t.is_alive():
+            return True
+        config = load_config()
+        if not force and not auto_check_due(config):
+            return False
+        _auto["message"] = ""
+        t = threading.Thread(target=_auto_worker, args=(config,), daemon=True, name="ip-job-auto-check")
+        _auto["thread"] = t
+        t.start()
+        return True
+
+
+def auto_check_running() -> bool:
+    t = _auto["thread"]
+    return t is not None and t.is_alive()
+
+
+def pop_auto_message() -> str:
+    msg, _auto["message"] = _auto["message"], ""
+    return msg
+
+
+def start_scheduler(every_minutes: float = 15) -> threading.Thread:
+    """While the app is running, look every few minutes and start a check when one is due."""
+    def loop():
+        while True:
+            try:
+                start_auto_check()
+            except Exception:
+                pass
+            time.sleep(every_minutes * 60)
+    t = threading.Thread(target=loop, daemon=True, name="ip-job-scheduler")
+    t.start()
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -391,11 +525,15 @@ def main(argv=None) -> None:
     ap.add_argument("--gmail", action="store_true", help="read new LinkedIn alert emails from Gmail")
     ap.add_argument("--eml-folder", type=Path, help="folder of saved .eml alert emails")
     ap.add_argument("--text", type=Path, action="append", help="a pasted alert saved as a .txt file (repeatable)")
+    ap.add_argument("--auto", action="store_true", help="search LinkedIn for every title and read Gmail (what the app does on its own)")
     ap.add_argument("--mark-shared", action="store_true", help="mark the jobs in the last draft as shared today")
     args = ap.parse_args(argv)
 
     load_env_file()
     config = load_config()
+    if args.auto:
+        print(run_auto_check(config).replace("**", ""))
+        return
     db = load_db()
     refresh_classification(db, config)
 
