@@ -26,6 +26,24 @@
     {"label": "IP",                         "all": ["ip"]}
   ],
 
+  "search_keywords": [
+    "Assistant General Counsel intellectual property",
+    "Associate General Counsel intellectual property",
+    "Vice President intellectual property",
+    "Senior Director intellectual property",
+    "Director of intellectual property",
+    "Head of intellectual property",
+    "Chief IP Counsel",
+    "Senior Patent Counsel",
+    "Lead IP Counsel",
+    "Managing IP Counsel",
+    "Senior IP Counsel",
+    "Patent Counsel",
+    "IP Counsel",
+    "Intellectual Property Counsel",
+    "Trademark Counsel"
+  ],
+
   "ip_terms": ["ip", "patent*", "trademark*", "copyright*", "trade secret*", "brand protection"],
 
   "exclude_terms": ["paralegal", "legal assistant", "intern", "internship", "clerk", "docketing",

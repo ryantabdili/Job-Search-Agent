@@ -236,8 +236,8 @@ with tab_jobs:
     else:
         f1, f2, f3, f4 = st.columns([2.4, 2, 1.6, 1.2], vertical_alignment="bottom")
         q = f1.text_input("Search", placeholder="Company, title or location", label_visibility="collapsed")
-        pick = f2.multiselect("Status", list(STATUS_PILL), default=["New", "Active"], label_visibility="collapsed",
-                              placeholder="Any status")
+        pick = f2.multiselect("Status", list(STATUS_PILL), default=[], label_visibility="collapsed",
+                              placeholder="Any status (all jobs)")
         focus = f3.segmented_control("Focus", ["All", "IP", "General"], default="All", label_visibility="collapsed")
         show_shared = f4.toggle("Show shared", value=True)
 
@@ -320,15 +320,32 @@ with tab_post:
         with left:
             st.subheader("Pick the jobs")
             n0 = min(len(candidates), config["max_jobs_per_post"])
-            st.caption(f"{len(candidates)} unshared job(s). "
-                       + ("All of them are" if n0 == len(candidates) else f"The top {n0} are") + " picked to start.")
-            chosen = []
+            st.caption(f"{len(candidates)} unshared job(s), sorted by priority. "
+                       + ("All of them are" if n0 == len(candidates) else f"The top {n0} are")
+                       + " ticked to start (the “Jobs per post” number in Settings).")
+
+            # Each checkbox keeps its own state, so the buttons below just set every box at once.
             for i, r in enumerate(candidates):
+                st.session_state.setdefault(f"pick_{r['key']}", i < config["max_jobs_per_post"])
+
+            def set_picks(mode: str):
+                for i, r in enumerate(candidates):
+                    st.session_state[f"pick_{r['key']}"] = (
+                        True if mode == "all" else False if mode == "none" else i < config["max_jobs_per_post"])
+
+            s1, s2, s3 = st.columns(3)
+            s1.button("Select all", width="stretch", on_click=set_picks, args=("all",))
+            s2.button("Clear all", width="stretch", on_click=set_picks, args=("none",))
+            s3.button(f"Top {n0} only", width="stretch", on_click=set_picks, args=("top",))
+
+            chosen = []
+            for r in candidates:
                 label = f"**{r['company']}**: {r['title']}"
                 if r["via_job_board"]:
                     label += "  ⚠️ job board"
-                if st.checkbox(label, value=i < config["max_jobs_per_post"], key=f"pick_{r['key']}"):
+                if st.checkbox(label, key=f"pick_{r['key']}"):
                     chosen.append(r["key"])
+            st.caption(f"{len(chosen)} of {len(candidates)} selected.")
         with right:
             st.subheader("Draft")
             base, _ = jobbot.build_post(db, config, keys=chosen, notes=False)
@@ -423,30 +440,56 @@ with tab_add:
     with c2:
         with st.container(border=True):
             st.subheader("Search LinkedIn Jobs")
-            st.caption("Search public job results without signing in. Results are added to this board and classified by its title rules.")
-            with st.form("linkedin_search"):
-                search_query = st.text_input("Keywords", value="patent counsel")
-                search_location = st.text_input("Location", value="United States")
-                search_pages = st.number_input("Pages", min_value=1, max_value=4, value=1)
-                search_delay = st.number_input("Seconds between pages", min_value=0.0, max_value=10.0, value=1.0, step=0.5)
-                search_submit = st.form_submit_button("Search and add jobs", type="primary", width="stretch")
+            st.caption("Tick the titles to search. Each one is searched in turn and the results are added to the "
+                       "board. The title rules still decide what makes the list. Add or remove titles in Settings.")
+            all_terms = config.get("search_keywords", ["Patent Counsel"])
+            for t in all_terms:
+                st.session_state.setdefault(f"kw_{t}", True)
+
+            def set_terms(value: bool):
+                for t in all_terms:
+                    st.session_state[f"kw_{t}"] = value
+
+            k1, k2 = st.columns(2)
+            k1.button("Select all", key="kw_all", width="stretch", on_click=set_terms, args=(True,))
+            k2.button("Clear all", key="kw_none", width="stretch", on_click=set_terms, args=(False,))
+            kc = st.columns(2)
+            terms = [t for i, t in enumerate(all_terms) if kc[i % 2].checkbox(t, key=f"kw_{t}")]
+            st.caption(f"{len(terms)} of {len(all_terms)} titles selected.")
+
+            search_location = st.text_input("Location", value="United States")
+            sp1, sp2 = st.columns(2)
+            search_pages = sp1.number_input("Pages per title", min_value=1, max_value=4, value=1)
+            search_delay = sp2.number_input("Seconds between searches", min_value=1.0, max_value=10.0,
+                                            value=2.0, step=0.5)
+            search_submit = st.button(f"Search {len(terms)} selected title(s) and add jobs", type="primary",
+                                      width="stretch", disabled=not terms)
             if search_submit:
-                if not search_query.strip():
-                    st.error("Enter keywords to search for.")
+                if not terms:
+                    st.error("Tick at least one title to search for.")
                 else:
-                    with st.spinner("Searching public LinkedIn Jobs results…"):
+                    progress = st.progress(0.0, text="Starting…")
+                    found, failed = [], []
+                    for i, term in enumerate(terms):
+                        progress.progress(i / len(terms), text=f"Searching “{term}” ({i + 1} of {len(terms)})…")
                         try:
-                            found = linkedin_search.fetch_jobs(
-                                search_query.strip(), search_location.strip(), int(search_pages), search_delay
-                            )
-                            listed_count, other_count = jobbot.add_jobs(db, found, config, source="linkedin-search")
-                            persist(db, config)
-                            st.session_state["flash"] = (
-                                f"Added {listed_count} matching job(s) and {other_count} other job(s) from LinkedIn search."
-                            )
-                            st.rerun()
+                            found.extend(linkedin_search.fetch_jobs(term, search_location.strip(),
+                                                                    int(search_pages), search_delay))
                         except Exception as exc:
-                            st.error(f"LinkedIn search failed: {exc}")
+                            failed.append(f"{term} ({exc})")
+                        if i < len(terms) - 1:
+                            linkedin_search.sleep(search_delay)
+                    progress.progress(1.0, text="Done")
+                    # The same job often comes back under several titles; keep one copy.
+                    unique = list({(j.job_id or f"{j.title}|{j.company}"): j for j in found}.values())
+                    listed_count, other_count = jobbot.add_jobs(db, unique, config, source="linkedin-search")
+                    persist(db, config)
+                    msg = (f"Searched {len(terms)} title(s), found {len(unique)} unique posting(s): "
+                           f"**{listed_count} new matching job(s)**, {other_count} other.")
+                    if failed:
+                        msg += f" {len(failed)} search(es) failed: " + "; ".join(failed[:3])
+                    st.session_state["flash"] = msg
+                    st.rerun()
 
         with st.container(border=True):
             st.subheader("Paste an alert")
@@ -478,6 +521,10 @@ with tab_settings:
         old_days = t2.number_input("Flag “check it's still open” after (days)", 7, 180, config["check_before_sharing_days"])
         max_post = t3.number_input("Jobs per post", 1, 25, config["max_jobs_per_post"])
 
+        st.subheader("Search titles")
+        keywords = st.text_area("Titles the LinkedIn search runs, one per line",
+                                "\n".join(config.get("search_keywords", [])), height=220)
+
         st.subheader("Job boards")
         boards = st.text_area("Companies that are really job boards, one per line. Their posts get flagged.",
                               "\n".join(config["job_boards"]), height=150)
@@ -501,6 +548,7 @@ with tab_settings:
                 new["post"] = {"intro": intro.strip(), "outro": outro.strip()}
                 new["new_days"], new["check_before_sharing_days"], new["max_jobs_per_post"] = int(new_days), int(old_days), int(max_post)
                 new["job_boards"] = [x.strip() for x in boards.splitlines() if x.strip()]
+                new["search_keywords"] = [x.strip() for x in keywords.splitlines() if x.strip()]
                 new["exclude_terms"] = [x.strip() for x in excl.splitlines() if x.strip()]
                 new["title_rules"] = json.loads(rules_json)
                 new["ip_terms"] = json.loads(ip_json)
