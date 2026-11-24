@@ -112,14 +112,14 @@ Then **quit the app and delete `jobs.db` and `jobs.xlsx`** so the test data does
 
 ## Using it week to week
 
-1. Double-click **`Open Job Board.command`**.
-2. Go to **Add alerts → Check Gmail now**.
+1. Double-click **`Open Job Board.command`** (or open the Render link).
+2. Nothing to click: the board searches LinkedIn for every title in **Settings → Search titles** (and reads Gmail, if it's connected) when it opens and every 6 hours while it's running. Change the interval in **Settings**, or click **Check for new jobs now** on the Jobs tab.
 3. Go to **Build a post**, untick anything you don't want, edit, and **Copy post**. Sepp pastes it into LinkedIn.
 4. Click **Mark these as shared** so they don't repeat next week.
 
 Change the opening and closing lines under **Settings** so they sound like Sepp.
 
-**Command line (optional):** everything also works without the app, e.g. `python jobbot.py --gmail`, `python jobbot.py --eml-folder ~/Desktop/alerts`, `python jobbot.py --text alert.txt`, and `python jobbot.py --mark-shared`. Each run also writes `post_draft.txt`.
+**Command line (optional):** everything also works without the app, e.g. `python jobbot.py --auto` (the same check the app runs on its own), `python jobbot.py --gmail`, `python jobbot.py --eml-folder ~/Desktop/alerts`, `python jobbot.py --text alert.txt`, and `python jobbot.py --mark-shared`. Each run also writes `post_draft.txt`.
 
 ---
 

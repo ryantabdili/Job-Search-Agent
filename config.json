@@ -52,6 +52,9 @@
   "job_boards": ["Ladders", "BioSpace", "Jobot", "Jobs via Dice", "Jobs via eFinancialCareers", "Talentify.io",
                  "Lensa", "Hirenza", "Recruiting from Scratch", "ZipRecruiter", "Indeed", "Robert Half", "Major, Lindsey & Africa"],
 
+  "auto_check_hours": 6,
+  "auto_check_location": "United States",
+
   "new_days": 7,
   "check_before_sharing_days": 30,
   "max_jobs_per_post": 10,

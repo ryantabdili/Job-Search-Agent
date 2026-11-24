@@ -104,6 +104,16 @@ def require_code() -> None:
 require_code()
 
 
+@st.cache_resource
+def _scheduler():
+    # One background loop per running app: it starts a check whenever one is due.
+    return jobbot.start_scheduler()
+
+
+_scheduler()
+jobbot.start_auto_check()  # also check right away if the last check is old (or there's never been one)
+
+
 def load():
     config = jobbot.load_config()
     db = jobbot.load_db()
@@ -117,26 +127,29 @@ def persist(db, config):
 
 
 def update_job(key: str, **changes):
-    config, db = load()
-    if key in db["jobs"]:
-        db["jobs"][key].update(changes)
-        persist(db, config)
+    with jobbot.DB_LOCK:
+        config, db = load()
+        if key in db["jobs"]:
+            db["jobs"][key].update(changes)
+            persist(db, config)
 
 
 def mark_shared(keys: list[str]):
-    config, db = load()
-    for k in keys:
-        if k in db["jobs"]:
-            db["jobs"][k]["shared_on"] = jobbot.today()
-    db["last_draft"] = []
-    persist(db, config)
+    with jobbot.DB_LOCK:
+        config, db = load()
+        for k in keys:
+            if k in db["jobs"]:
+                db["jobs"][k]["shared_on"] = jobbot.today()
+        db["last_draft"] = []
+        persist(db, config)
     st.session_state["flash"] = f"Marked {len(keys)} job(s) as shared. They won't show up in the next post."
 
 
 def run_ingest(batches):
-    config, db = load()
-    summary = jobbot.ingest(db, batches, config)
-    persist(db, config)
+    with jobbot.DB_LOCK:
+        config, db = load()
+        summary = jobbot.ingest(db, batches, config)
+        persist(db, config)
     msg = f"Read {summary['emails']} email(s): **{summary['new_listed']} new matching job(s)**, {summary['new_other']} other."
     if summary["skipped"]:
         msg += f" Skipped {summary['skipped']} already read."
@@ -159,13 +172,16 @@ candidates = jobbot.post_candidates(db, config)
 # Header + stats
 # ---------------------------------------------------------------------------
 
-last = dt.datetime.fromtimestamp(jobbot.DB_PATH.stat().st_mtime).strftime("%b %d, %I:%M %p").replace(" 0", " ") \
-    if jobbot.DB_PATH.exists() else "never"
+def _fmt_time(t):
+    return t.strftime("%b %d, %I:%M %p").replace(" 0", " ") if t else "never"
+
+
+last = "checking now…" if jobbot.auto_check_running() else _fmt_time(jobbot.last_auto_check())
 st.markdown(f"""
 <div class="hero">
     <div><h1>IP Job Board</h1>
     <p>Search, review, and share the in-house intellectual property roles worth your attention.</p></div>
-  <div class="stamp">Last updated {esc(last)}</div>
+  <div class="stamp">Last checked for new jobs: {esc(last)}</div>
 </div>
 <div class="stats">
   <div class="stat hl"><div class="n">{sum(statuses[r['key']] == 'New' for r in listed)}</div><div class="l">New this week</div></div>
@@ -175,8 +191,23 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+auto_msg = jobbot.pop_auto_message()
+if auto_msg:
+    st.session_state["flash"] = auto_msg
 if st.session_state.get("flash"):
     st.success(st.session_state.pop("flash"))
+
+
+@st.fragment(run_every=4)
+def _auto_check_banner():
+    if not jobbot.auto_check_running():
+        st.rerun()  # finished: reload the whole page with the new jobs
+    st.info("Checking LinkedIn for new jobs in the background. The list updates by itself when it's done "
+            "(usually under a minute). You can keep using the board.")
+
+
+if jobbot.auto_check_running():
+    _auto_check_banner()
 
 tab_jobs, tab_post, tab_add, tab_settings = st.tabs(["Jobs", "Build a post", "Add alerts", "Settings"])
 
@@ -229,10 +260,19 @@ def job_card(r: dict, actions: str):
                           on_click=update_job, args=(r["key"],), kwargs={"manual_include": True})
 
 
+def check_now():
+    jobbot.start_auto_check(force=True)
+
+
 with tab_jobs:
+    r1, r2 = st.columns([4, 1.3], vertical_alignment="center")
+    r1.markdown(f'<div class="hint">New jobs are found automatically every {config.get("auto_check_hours", 6):g} hours '
+                f'(LinkedIn search for every title in Settings{", plus Gmail" if jobbot.gmail_configured() else ""}). '
+                f'Last check: {esc(last)}.</div>', unsafe_allow_html=True)
+    r2.button("Check for new jobs now", width="stretch", on_click=check_now, disabled=jobbot.auto_check_running())
     if not db["jobs"]:
-        st.markdown('<div class="empty"><b>No jobs yet.</b><br>Go to <b>Add alerts</b> to check Gmail, '
-                    'upload alert emails, or paste one in.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="empty"><b>No jobs yet.</b><br>The first automatic check is running. '
+                    'The list fills in by itself.</div>', unsafe_allow_html=True)
     else:
         f1, f2, f3, f4 = st.columns([2.4, 2, 1.6, 1.2], vertical_alignment="bottom")
         q = f1.text_input("Search", placeholder="Company, title or location", label_visibility="collapsed")
@@ -440,7 +480,8 @@ with tab_add:
     with c2:
         with st.container(border=True):
             st.subheader("Search LinkedIn Jobs")
-            st.caption("Tick the titles to search. Each one is searched in turn and the results are added to the "
+            st.caption("The board already searches every title on its own (see the Jobs tab). Use this only for "
+                       "a one-off search of particular titles. Tick the titles to search. Each one is searched in turn and the results are added to the "
                        "board. The title rules still decide what makes the list. Add or remove titles in Settings.")
             all_terms = config.get("search_keywords", ["Patent Counsel"])
             for t in all_terms:
@@ -482,8 +523,10 @@ with tab_add:
                     progress.progress(1.0, text="Done")
                     # The same job often comes back under several titles; keep one copy.
                     unique = list({(j.job_id or f"{j.title}|{j.company}"): j for j in found}.values())
-                    listed_count, other_count = jobbot.add_jobs(db, unique, config, source="linkedin-search")
-                    persist(db, config)
+                    with jobbot.DB_LOCK:
+                        config2, db2 = load()
+                        listed_count, other_count = jobbot.add_jobs(db2, unique, config2, source="linkedin-search")
+                        persist(db2, config2)
                     msg = (f"Searched {len(terms)} title(s), found {len(unique)} unique posting(s): "
                            f"**{listed_count} new matching job(s)**, {other_count} other.")
                     if failed:
@@ -520,6 +563,8 @@ with tab_settings:
         new_days = t1.number_input("Counts as “New” for (days)", 1, 60, config["new_days"])
         old_days = t2.number_input("Flag “check it's still open” after (days)", 7, 180, config["check_before_sharing_days"])
         max_post = t3.number_input("Jobs per post", 1, 25, config["max_jobs_per_post"])
+        auto_hours = st.number_input("Check for new jobs automatically every (hours)", 1, 168,
+                                     int(config.get("auto_check_hours", 6)))
 
         st.subheader("Search titles")
         keywords = st.text_area("Titles the LinkedIn search runs, one per line",
@@ -547,15 +592,17 @@ with tab_settings:
                 new = dict(config)
                 new["post"] = {"intro": intro.strip(), "outro": outro.strip()}
                 new["new_days"], new["check_before_sharing_days"], new["max_jobs_per_post"] = int(new_days), int(old_days), int(max_post)
+                new["auto_check_hours"] = int(auto_hours)
                 new["job_boards"] = [x.strip() for x in boards.splitlines() if x.strip()]
                 new["search_keywords"] = [x.strip() for x in keywords.splitlines() if x.strip()]
                 new["exclude_terms"] = [x.strip() for x in excl.splitlines() if x.strip()]
                 new["title_rules"] = json.loads(rules_json)
                 new["ip_terms"] = json.loads(ip_json)
                 assert all("label" in r for r in new["title_rules"]), "every rule needs a label"
-                jobbot.CONFIG_PATH.write_text(json.dumps(new, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-                _, db2 = load()  # re-applies the rules to every saved job
-                persist(db2, new)
+                with jobbot.DB_LOCK:
+                    jobbot.CONFIG_PATH.write_text(json.dumps(new, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    _, db2 = load()  # re-applies the rules to every saved job
+                    persist(db2, new)
                 st.session_state["flash"] = "Settings saved, and the rules were re-applied to every job."
                 st.rerun()
             except Exception as exc:
